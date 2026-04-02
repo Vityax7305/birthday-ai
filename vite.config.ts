@@ -16,6 +16,22 @@ export default defineConfig({
   server: {
     port: 5173,
     open: true,
+    proxy: {
+      '/api/yandex': {
+        target: 'https://llm.api.cloud.yandex.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/yandex/, ''),
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            // Добавляем API ключ из переменных окружения
+            const apiKey = process.env.VITE_YANDEX_API_KEY;
+            if (apiKey) {
+              proxyReq.setHeader('Authorization', `Api-Key ${apiKey}`);
+            }
+          });
+        }
+      }
+    },
   },
   build: {
     outDir: 'dist',

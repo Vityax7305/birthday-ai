@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test YandexGPT API</title>
+</head>
+<body>
+    <h2>Тест YandexGPT API</h2>
+    <div id="result"></div>
+    
+    <script>
+        const API_KEY = 'ваш_правильный_ключ';
+        const FOLDER_ID = 'ajeer961h50351qsvc04';
+        
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '⏳ Отправка запроса...';
+            
+            try {
+                const response = await fetch('https://llm.api.cloud.yandex.net/foundationModels/v1/completion', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Api-Key ${API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        modelUri: `gpt://${FOLDER_ID}/yandexgpt-lite`,
+                        completionOptions: {
+                            stream: false,
+                            temperature: 0.6,
+                            maxTokens: '100'
+                        },
+                        messages: [
+                            {
+                                role: "user",
+                                text: "Скажи 'Привет, API работает!'"
+                            }
+                        ]
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    resultDiv.innerHTML = `❌ Ошибка: ${JSON.stringify(data)}`;
+                    return;
+                }
+                
+                const reply = data.result?.alternatives?.[0]?.message?.text;
+                resultDiv.innerHTML = `✅ УСПЕХ!<br><br>Ответ: ${reply}`;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `❌ Ошибка: ${error.message}`;
+            }
+        }
+        
+        testAPI();
+    </script>
+</body>
+</html>
