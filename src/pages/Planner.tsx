@@ -1,4 +1,3 @@
-// src/pages/Planner.tsx
 import { useState } from "react";
 import { motion } from "motion/react";
 import {
@@ -12,12 +11,16 @@ import {
   Edit2,
   Save,
   X,
+  Mail,
+  Send,
 } from "lucide-react";
+import { EmailInviteModal } from "../components/EmailInviteModal";
 
 interface Guest {
   id: string;
   name: string;
   status: "pending" | "confirmed" | "declined";
+  email?: string;
 }
 
 interface Task {
@@ -36,17 +39,19 @@ interface Expense {
 
 export function Planner() {
   const [guests, setGuests] = useState<Guest[]>([
-    { id: "1", name: "Анна Петрова", status: "confirmed" },
-    { id: "2", name: "Иван Иванов", status: "pending" },
+    { id: "1", name: "Анна Петрова", status: "pending", email: "anna@example.com" },
+    { id: "2", name: "Иван Иванов", status: "pending", email: "ivan@example.com" },
     { id: "3", name: "Мария Смирнова", status: "pending" },
-    { id: "4", name: "Дмитрий Козлов", status: "confirmed" },
+    { id: "4", name: "Дмитрий Козлов", status: "confirmed", email: "dmitry@example.com" },
   ]);
+  
   const [tasks, setTasks] = useState<Task[]>([
     { id: "1", title: "Заказать торт", completed: false, category: "Еда" },
     { id: "2", title: "Купить украшения", completed: true, category: "Декор" },
     { id: "3", title: "Подобрать музыку", completed: false, category: "Развлечения" },
     { id: "4", title: "Разослать приглашения", completed: true, category: "Гости" },
   ]);
+  
   const [expenses, setExpenses] = useState<Expense[]>([
     { id: "1", title: "Торт", amount: 3500, category: "Еда" },
     { id: "2", title: "Украшения", amount: 5000, category: "Декор" },
@@ -55,6 +60,7 @@ export function Planner() {
   ]);
 
   const [newGuestName, setNewGuestName] = useState("");
+  const [newGuestEmail, setNewGuestEmail] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskCategory, setNewTaskCategory] = useState("Другое");
   const [newExpenseTitle, setNewExpenseTitle] = useState("");
@@ -63,6 +69,11 @@ export function Planner() {
 
   const [editingGuest, setEditingGuest] = useState<string | null>(null);
   const [editGuestName, setEditGuestName] = useState("");
+  const [editGuestEmail, setEditGuestEmail] = useState("");
+
+  // Состояние для модального окна email
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
   const confirmedGuests = guests.filter(g => g.status === "confirmed").length;
@@ -71,8 +82,14 @@ export function Planner() {
 
   const addGuest = () => {
     if (newGuestName.trim()) {
-      setGuests([...guests, { id: Date.now().toString(), name: newGuestName, status: "pending" }]);
+      setGuests([...guests, { 
+        id: Date.now().toString(), 
+        name: newGuestName, 
+        status: "pending",
+        email: newGuestEmail.trim() || undefined
+      }]);
       setNewGuestName("");
+      setNewGuestEmail("");
     }
   };
 
@@ -87,14 +104,42 @@ export function Planner() {
   const startEditGuest = (guest: Guest) => {
     setEditingGuest(guest.id);
     setEditGuestName(guest.name);
+    setEditGuestEmail(guest.email || "");
   };
 
   const saveEditGuest = (id: string) => {
     if (editGuestName.trim()) {
-      setGuests(guests.map(g => g.id === id ? { ...g, name: editGuestName } : g));
+      setGuests(guests.map(g => g.id === id ? { 
+        ...g, 
+        name: editGuestName,
+        email: editGuestEmail.trim() || undefined
+      } : g));
     }
     setEditingGuest(null);
     setEditGuestName("");
+    setEditGuestEmail("");
+  };
+
+  const openEmailModal = (guest: Guest) => {
+    setSelectedGuest(guest);
+    setEmailModalOpen(true);
+  };
+
+  const handleInviteSent = (guestId: string, email: string) => {
+    setGuests(guests.map(g => 
+      g.id === guestId ? { ...g, email } : g
+    ));
+    // Опционально: показать уведомление
+    alert(`Приглашение отправлено на ${email}`);
+  };
+
+  const sendBulkInvites = () => {
+    const guestsWithoutEmail = guests.filter(g => !g.email && g.status === "pending");
+    if (guestsWithoutEmail.length === 0) {
+      alert("У всех гостей уже есть email адреса!");
+      return;
+    }
+    alert(`У ${guestsWithoutEmail.length} гостей нет email адреса. Добавьте email перед отправкой.`);
   };
 
   const addTask = () => {
@@ -128,6 +173,13 @@ export function Planner() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
+      <EmailInviteModal
+        isOpen={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        guest={selectedGuest}
+        onInviteSent={handleInviteSent}
+      />
+
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -219,10 +271,22 @@ export function Planner() {
           className="rounded-2xl p-6"
           style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)" }}
         >
-          <h2 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-            <Users className="w-5 h-5" style={{ color: "#8b5cf6" }} />
-            Список гостей
-          </h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+              <Users className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+              Список гостей
+            </h2>
+            {guests.filter(g => g.email).length > 0 && (
+              <button
+                onClick={sendBulkInvites}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs"
+                style={{ background: "rgba(139,92,246,0.2)", color: "#8b5cf6" }}
+              >
+                <Send className="w-3 h-3" />
+                Отправить всем
+              </button>
+            )}
+          </div>
 
           <div className="flex gap-2 mb-4">
             <input
@@ -231,6 +295,13 @@ export function Planner() {
               onChange={(e) => setNewGuestName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addGuest()}
               placeholder="Имя гостя"
+              className="flex-1 px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/40 outline-none focus:border-[#8b5cf6]"
+            />
+            <input
+              type="email"
+              value={newGuestEmail}
+              onChange={(e) => setNewGuestEmail(e.target.value)}
+              placeholder="Email (опционально)"
               className="flex-1 px-4 py-2 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/40 outline-none focus:border-[#8b5cf6]"
             />
             <button
@@ -259,6 +330,13 @@ export function Planner() {
                       className="flex-1 px-3 py-1 rounded-lg bg-white/20 text-white outline-none"
                       autoFocus
                     />
+                    <input
+                      type="email"
+                      value={editGuestEmail}
+                      onChange={(e) => setEditGuestEmail(e.target.value)}
+                      placeholder="Email"
+                      className="flex-1 px-3 py-1 rounded-lg bg-white/20 text-white outline-none"
+                    />
                     <button onClick={() => saveEditGuest(guest.id)} className="p-1 text-green-400">
                       <Save className="w-4 h-4" />
                     </button>
@@ -268,7 +346,12 @@ export function Planner() {
                   </div>
                 ) : (
                   <>
-                    <span className="text-white">{guest.name}</span>
+                    <div className="flex-1">
+                      <div className="text-white">{guest.name}</div>
+                      {guest.email && (
+                        <div className="text-white/40 text-xs">{guest.email}</div>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <select
                         value={guest.status}
@@ -279,6 +362,13 @@ export function Planner() {
                         <option value="confirmed">Подтверждён</option>
                         <option value="declined">Отказался</option>
                       </select>
+                      <button
+                        onClick={() => openEmailModal(guest)}
+                        className="p-1 text-white/40 hover:text-[#8b5cf6] transition-all"
+                        title="Отправить приглашение по email"
+                      >
+                        <Mail className="w-4 h-4" />
+                      </button>
                       <button onClick={() => startEditGuest(guest)} className="p-1 text-white/40 hover:text-white">
                         <Edit2 className="w-4 h-4" />
                       </button>
@@ -296,7 +386,7 @@ export function Planner() {
           </div>
         </motion.div>
 
-        {/* Tasks Section */}
+        {/* Tasks Section - остаётся без изменений */}
         <motion.div
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
@@ -372,7 +462,7 @@ export function Planner() {
           </div>
         </motion.div>
 
-        {/* Expenses Section */}
+        {/* Expenses Section - остаётся без изменений */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
