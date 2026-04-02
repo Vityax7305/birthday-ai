@@ -12,9 +12,13 @@ import {
   RefreshCw,
   AlertCircle,
   Wifi,
-  WifiOff,
+  Calendar,
+  Users,
+  DollarSign,
+  CheckSquare,
 } from "lucide-react";
-import { yandexGPTDirectService } from "../services/yandexgpt-direct";
+import { usePlanner } from "../context/PlannerContext";
+import { setPlannerActions, yandexGPTDirectService } from "../services/yandexgpt-direct";
 
 interface Message {
   id: string;
@@ -33,34 +37,43 @@ const QUICK_PROMPTS = [
   "Что подарить на день рождения?",
   "Идеи для декора своими руками",
   "Как выбрать место для праздника?",
+  "Добавь гостя Анну Петрову",
+  "Запланируй задачу: заказать торт",
 ];
 
 export function Chat() {
+  const { guests, tasks, expenses, addGuest, addTask, addExpense } = usePlanner();
+  
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
       role: "assistant",
       content: `🎉 **Привет! Я BirthdayAI - ваш умный помощник по планированию дня рождения!** 
 
-🤖 Я использую **YandexGPT** - нейросеть от Яндекса для генерации персонализированных советов.
+🤖 Я использую **YandexGPT** для генерации персонализированных советов.
 
 **Что я умею:**
 • 🎨 Придумывать уникальные темы и концепции
 • 🍽️ Составлять меню с учетом предпочтений
-• 👥 Организовывать гостей и рассылать приглашения
-• 💰 Планировать бюджет с детализацией
+• 👥 Добавлять гостей в планировщик
+• 💰 Планировать бюджет и записывать расходы
+• 📋 Создавать задачи по подготовке
 • 🎮 Подбирать конкурсы для любого возраста
 • 🎁 Давать идеи подарков
 • 🎈 Советовать декор и украшения
-• 📍 Рекомендовать места для праздника
 
-**Просто расскажите о вашем празднике:**
+**Попробуйте команды:**
+• 👥 "Добавь гостя Анну Петрову"
+• 📋 "Запланируй задачу: заказать торт"
+• 💰 "Торт стоит 3500 рублей"
+• 📊 "Покажи статистику планировщика"
+
+**Или просто расскажите о вашем празднике:**
 - Кто именинник? (возраст, пол, интересы)
 - Сколько гостей планируется?
 - Какой бюджет?
-- Есть ли особые пожелания?
 
-Я создам для вас идеальный план! ✨`,
+Я создам для вас идеальный план и добавлю всё в планировщик! ✨`,
       timestamp: new Date(),
     },
   ]);
@@ -68,8 +81,34 @@ export function Chat() {
   const [isTyping, setIsTyping] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showPlannerStats, setShowPlannerStats] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Подключаем действия планировщика к сервису ИИ
+  useEffect(() => {
+    setPlannerActions({
+      addGuest: (name: string, email?: string) => {
+        addGuest({ name, email, status: "pending" });
+        console.log(`✅ Гость добавлен: ${name}`);
+      },
+      addTask: (title: string, category: string) => {
+        addTask({ title, completed: false, category });
+        console.log(`✅ Задача добавлена: ${title} (${category})`);
+      },
+      addExpense: (title: string, amount: number, category: string) => {
+        addExpense({ title, amount, category });
+        console.log(`✅ Расход добавлен: ${title} - ${amount}₽ (${category})`);
+      },
+      getState: () => ({
+        guestsCount: guests.length,
+        tasksCount: tasks.length,
+        expensesTotal: expenses.reduce((sum, e) => sum + e.amount, 0)
+      })
+    });
+    
+    yandexGPTDirectService.startNewChat();
+  }, [addGuest, addTask, addExpense, guests.length, tasks.length, expenses]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -105,6 +144,15 @@ export function Chat() {
     } catch (err) {
       console.error("Ошибка:", err);
       setError("Ошибка подключения к YandexGPT");
+      
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "⚠️ Извините, произошла ошибка. Пожалуйста, попробуйте позже. 🎉",
+        timestamp: new Date(),
+        isError: true,
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
     }
@@ -123,7 +171,7 @@ export function Chat() {
       {
         id: "welcome-new",
         role: "assistant",
-        content: "🎉 Чат очищен! Начнём заново. Расскажите о вашем празднике! ✨",
+        content: "🎉 Чат очищен! Начнём заново. Расскажите о вашем празднике, и я помогу создать идеальный план! ✨",
         timestamp: new Date(),
       },
     ]);
@@ -141,8 +189,12 @@ export function Chat() {
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
       .replace(/\*(.*?)\*/g, "<em>$1</em>")
       .replace(/\n/g, "<br/>")
-      .replace(/• (.*?)(<br\/>|$)/g, '<span class="flex gap-2 my-0.5"><span>•</span><span>$1</span></span>');
+      .replace(/• (.*?)(<br\/>|$)/g, '<span class="flex gap-2 my-0.5"><span>•</span><span>$1</span></span>')
+      .replace(/✅/g, '<span class="text-green-400">✅</span>');
   };
+
+  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const completedTasks = tasks.filter(t => t.completed).length;
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
@@ -172,6 +224,13 @@ export function Chat() {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowPlannerStats(!showPlannerStats)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all text-sm"
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            Статистика
+          </button>
+          <button
             onClick={clearChat}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-all text-sm"
           >
@@ -180,6 +239,51 @@ export function Chat() {
           </button>
         </div>
       </div>
+
+      {/* Planner Stats Panel */}
+      {showPlannerStats && (
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-4 mt-2 p-4 rounded-xl"
+          style={{ background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.3)" }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-white font-semibold flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              Планировщик праздника
+            </h3>
+            <button
+              onClick={() => setShowPlannerStats(false)}
+              className="text-white/40 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="text-center">
+              <Users className="w-5 h-5 text-purple-400 mx-auto mb-1" />
+              <div className="text-2xl font-bold text-white">{guests.length}</div>
+              <div className="text-xs text-white/50">Гостей</div>
+            </div>
+            <div className="text-center">
+              <CheckSquare className="w-5 h-5 text-green-400 mx-auto mb-1" />
+              <div className="text-2xl font-bold text-white">{completedTasks}/{tasks.length}</div>
+              <div className="text-xs text-white/50">Задач</div>
+            </div>
+            <div className="text-center">
+              <DollarSign className="w-5 h-5 text-pink-400 mx-auto mb-1" />
+              <div className="text-2xl font-bold text-white">{totalExpenses.toLocaleString()} ₽</div>
+              <div className="text-xs text-white/50">Бюджет</div>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-white/10 text-center">
+            <a href="/planner" className="text-sm text-purple-400 hover:text-purple-300 transition-colors">
+              Перейти в полный планировщик →
+            </a>
+          </div>
+        </motion.div>
+      )}
 
       {/* Error banner */}
       {error && (
@@ -318,7 +422,7 @@ export function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="Спросите что-нибудь о дне рождения..."
+                placeholder="Спросите что-нибудь о дне рождения или добавьте данные в планировщик..."
                 rows={1}
                 className="w-full bg-transparent text-white placeholder-white/30 resize-none outline-none text-sm"
                 style={{ maxHeight: "120px" }}
@@ -335,7 +439,9 @@ export function Chat() {
               <Send className="w-4 h-4 text-white" />
             </motion.button>
           </div>
-          <p className="text-white/25 text-xs text-center mt-2">Enter — отправить, Shift+Enter — новая строка</p>
+          <p className="text-white/25 text-xs text-center mt-2">
+            💡 Подсказка: "Добавь гостя Анну", "Запланируй заказать торт", "Торт 3500 рублей"
+          </p>
         </div>
       </div>
     </div>
