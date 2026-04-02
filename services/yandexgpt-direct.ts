@@ -1,4 +1,15 @@
-// src/services/yandexgpt-direct.ts
+type PlannerActions = {
+  addGuest: (name: string, email?: string) => void;
+  addTask: (title: string, category: string) => void;
+  addExpense: (title: string, amount: number, category: string) => void;
+  getState: () => { guestsCount: number; tasksCount: number; expensesTotal: number };
+};
+
+let globalPlannerActions: PlannerActions | null = null;
+
+export function setPlannerActions(actions: PlannerActions) {
+  globalPlannerActions = actions;
+}
 
 const SYSTEM_PROMPT = `Ты - BirthdayAI, дружелюбный и креативный помощник по планированию дней рождений.
 
@@ -12,25 +23,28 @@ const SYSTEM_PROMPT = `Ты - BirthdayAI, дружелюбный и креати
 - Декоре и украшениях
 - Выборе места проведения
 
+ВАЖНО: Ты можешь автоматически добавлять данные в планировщик!
+Когда пользователь сообщает информацию, ты должен:
+1. Добавлять гостей в список, когда пользователь называет имена
+2. Добавлять задачи, когда обсуждаются дела (заказать торт, купить декор и т.д.)
+3. Добавлять расходы, когда называется сумма
+
+Формат для добавления в планировщик (используй в ответе):
+[ADD_GUEST: Имя гостя]
+[ADD_TASK: Название задачи|Категория]
+[ADD_EXPENSE: Название|Сумма|Категория]
+
 Правила общения:
 1. Отвечай на русском языке
 2. Будь дружелюбным и воодушевляющим
-3. Используй эмодзи для украшения сообщений (🎉, 🎂, 🎈, ✨, 🎁, 💰, 🍽️, 🎮)
+3. Используй эмодзи
 4. Давай конкретные, полезные советы
-5. Запоминай контекст разговора
-6. Обращайся к пользователю по имени, если знаешь
-7. Учитывай возраст и интересы именинника
-8. Задавай уточняющие вопросы, чтобы лучше понять потребности пользователя
-9. Используй форматирование: **жирный** для заголовков, *курсив* для акцентов
 
 Ты помогаешь создать идеальный день рождения! 🎉`;
 
 class YandexGPTDirectService {
   private messages: Array<{ role: string; text: string }>;
   private folderId: string;
-  private userAge: string | null = null;
-  private userGender: string | null = null;
-  private conversationHistory: Array<{ role: string; content: string }> = [];
 
   constructor() {
     this.folderId = import.meta.env.VITE_YANDEX_FOLDER_ID || '';
@@ -45,39 +59,51 @@ class YandexGPTDirectService {
     this.messages = [
       { role: "system", text: SYSTEM_PROMPT }
     ];
-    this.userAge = null;
-    this.userGender = null;
-    this.conversationHistory = [];
+  }
+
+  private processPlannerCommands(response: string): string {
+    if (!globalPlannerActions) return response;
+    
+    let processedResponse = response;
+    
+    // Обработка добавления гостя
+    const guestRegex = /\[ADD_GUEST:\s*([^|\]]+)(?:\|([^\]]+))?\]/g;
+    let match;
+    while ((match = guestRegex.exec(response)) !== null) {
+      const name = match[1].trim();
+      const email = match[2]?.trim();
+      globalPlannerActions.addGuest(name, email);
+      processedResponse = processedResponse.replace(match[0], `✅ Гость "${name}" добавлен в планировщик`);
+    }
+    
+    // Обработка добавления задачи
+    const taskRegex = /\[ADD_TASK:\s*([^|]+)\|([^\]]+)\]/g;
+    while ((match = taskRegex.exec(response)) !== null) {
+      const title = match[1].trim();
+      const category = match[2].trim();
+      globalPlannerActions.addTask(title, category);
+      processedResponse = processedResponse.replace(match[0], `✅ Задача "${title}" добавлена в планировщик`);
+    }
+    
+    // Обработка добавления расхода
+    const expenseRegex = /\[ADD_EXPENSE:\s*([^|]+)\|(\d+(?:\.\d+)?)\|([^\]]+)\]/g;
+    while ((match = expenseRegex.exec(response)) !== null) {
+      const title = match[1].trim();
+      const amount = parseFloat(match[2]);
+      const category = match[3].trim();
+      globalPlannerActions.addExpense(title, amount, category);
+      processedResponse = processedResponse.replace(match[0], `✅ Расход "${title}" (${amount} ₽) добавлен в планировщик`);
+    }
+    
+    return processedResponse;
   }
 
   async sendMessage(message: string): Promise<string> {
     try {
-      console.log('📤 Отправка запроса к YandexGPT через Vite прокси...');
-      console.log('📝 История сообщений:', this.messages.length);
-      
-      // Сохраняем в историю для контекста
-      this.conversationHistory.push({ role: "user", content: message });
-      
-      // Извлекаем возраст из сообщения
-      const ageMatch = message.match(/\b(\d{1,2})\b/);
-      if (ageMatch && parseInt(ageMatch[0]) >= 18 && parseInt(ageMatch[0]) <= 100) {
-        this.userAge = ageMatch[0];
-        console.log('📝 Определен возраст:', this.userAge);
-      }
-      
-      // Извлекаем пол
-      const msgLower = message.toLowerCase();
-      if (msgLower.includes('жен') || msgLower.includes('дев') || msgLower.includes('мам')) {
-        this.userGender = 'woman';
-        console.log('📝 Определен пол: женщина');
-      } else if (msgLower.includes('муж') || msgLower.includes('пар') || msgLower.includes('пап')) {
-        this.userGender = 'man';
-        console.log('📝 Определен пол: мужчина');
-      }
+      console.log('📤 Отправка запроса к YandexGPT...');
       
       this.messages.push({ role: "user", text: message });
 
-      // Используем Vite прокси вместо прямого вызова
       const response = await fetch('/api/yandex/foundationModels/v1/completion', {
         method: 'POST',
         headers: {
@@ -98,26 +124,21 @@ class YandexGPTDirectService {
       
       if (!response.ok) {
         console.error('❌ Ошибка YandexGPT:', data);
-        
-        // Если ошибка связана с балансом или ключом, используем демо-режим
-        if (response.status === 403 || response.status === 401 || response.status === 429) {
-          return this.getSmartDemoResponse(message);
-        }
-        
-        throw new Error(data.error?.message || 'Ошибка API');
+        return this.getSmartDemoResponse(message);
       }
       
-      const reply = data.result?.alternatives?.[0]?.message?.text;
+      let reply = data.result?.alternatives?.[0]?.message?.text;
       
       if (!reply) {
         throw new Error('Пустой ответ от API');
       }
       
+      // Обрабатываем команды для планировщика
+      reply = this.processPlannerCommands(reply);
+      
       console.log('✅ Ответ получен от YandexGPT');
-      console.log('💬 Ответ:', reply.substring(0, 100));
       
       this.messages.push({ role: "assistant", text: reply });
-      this.conversationHistory.push({ role: "assistant", content: reply });
       return reply;
       
     } catch (error) {
@@ -129,240 +150,88 @@ class YandexGPTDirectService {
   private getSmartDemoResponse(message: string): string {
     const msg = message.toLowerCase();
     
-    // Приветствие
-    if (msg.includes('привет') || msg.includes('здравствуй')) {
-      return "🎉 **Привет! Я BirthdayAI - ваш помощник по планированию дня рождения!**\n\nРасскажите о вашем празднике:\n- Кто именинник? (возраст, пол, интересы)\n- Сколько гостей планируется?\n- Какой бюджет?\n\nЯ помогу создать идеальный план! ✨";
-    }
-    
-    // 40 лет
-    if (this.userAge === '40' || msg.includes('40 лет') || msg.includes('сорок')) {
-      const genderText = this.userGender === 'woman' ? 'женщины' : 'мужчины';
-      return `🎉 **С 40-летием! Прекрасный юбилей для ${genderText}!**
-
-**Идеи для празднования:**
-
-**🎭 Тематика:**
-• Гламурный вечер (черное + золото)
-• Маскарад
-• Ретро-вечеринка (стиль 80-х или 90-х)
-
-**🍽️ Меню:**
-• Фуршет с канапе и брускеттами
-• Горячее: запеченная рыба или мясо
-• Торт с поздравительной надписью
-
-**🎮 Развлечения:**
-• Живая музыка или караоке
-• Фотозона с реквизитом
-• Квиз "История именинника"
-
-**🎁 Подарки:**
-• Сертификат на SPA или массаж
-• Путешествие
-• Ювелирное украшение
-
-Какой формат вам ближе? 🎉`;
-    }
-    
-    // Сегодня день рождения
-    if (msg.includes('сегодня')) {
-      return `🥳 **С днем рождения! Поздравляю!**
-
-Экспресс-план для праздника сегодня:
-
-**Срочные дела:**
-1. 🎂 Закажите торт
-2. 🎈 Купите шары и гирлянды
-3. 🍕 Закажите доставку еды
-
-**Быстрый декор:**
-• Надуйте шары
-• Повесьте гирлянду
-• Поставьте свечи
-
-Главное - ваше настроение и близкие люди рядом! 🎉`;
-    }
-    
-    // Тема праздника
-    if (msg.includes('тем') || msg.includes('стиль') || msg.includes('концепц')) {
-      if (this.userAge && parseInt(this.userAge) >= 30) {
-        return `🎨 **Темы для ${this.userAge}-летия:**
-
-**Для взрослой вечеринки:**
-• 🍾 **Гламурный вечер** - черное и золото, шампанское
-• 🎭 **Маскарад** - загадочные маски, свечи
-• 🌿 **Ботанический сад** - живые цветы, зелень
-• 🏖️ **Тропический рай** - яркие цвета, коктейли
-
-Какая тема вам нравится? 🎉`;
+    // Добавление гостей
+    if (msg.includes('гость') || msg.includes('пригласить')) {
+      const nameMatch = message.match(/[А-Яа-я]+\s+[А-Яа-я]+/);
+      if (nameMatch && globalPlannerActions) {
+        globalPlannerActions.addGuest(nameMatch[0]);
+        return `✅ Гость "${nameMatch[0]}" добавлен в планировщик! 🎉\n\nКого еще пригласить?`;
       }
-      
-      return `🎨 **Популярные темы для праздника:**
-
-**Для детей:**
-• 🦄 Единороги и магия
-• 🚀 Космос и планеты
-• 🦁 Сафари и джунгли
-
-**Для взрослых:**
-• 🍾 Гламурный вечер
-• 🎭 Маскарад
-• 🌿 Ботанический сад
-
-Выберите тему, и я расскажу детали! ✨`;
+      return `📝 Напишите имя гостя, и я добавлю его в список приглашенных. Например: "Пригласи Анну Петрову"`;
     }
     
-    // Меню
-    if (msg.includes('меню') || msg.includes('еда') || msg.includes('блюд')) {
-      return `🍽️ **Меню для праздника:**
-
-**Закуски:**
-• Канапе с лососем
-• Брускетта с томатами
-• Сырная тарелка
-
-**Горячее:**
-• Запечённая курица
-• Паста в сливочном соусе
-• Мини-бургеры
-
-**Сладкое:**
-• 🎂 Торт на заказ
-• Капкейки
-• Макаруны
-
-**Напитки:**
-• Домашний лимонад
-• Морсы
-• Просекко (для взрослых)
-
-Сколько гостей ожидается? 🥂`;
-    }
-    
-    // Бюджет
-    if (msg.includes('бюджет') || msg.includes('деньг') || msg.includes('стоим')) {
-      return `💰 **Примерный бюджет (на 20 человек):**
-
-• 🎂 Торт: 4 500 ₽
-• 🍽️ Еда: 10 500 ₽
-• 🎈 Декор: 6 000 ₽
-• 🎤 Развлечения: 4 500 ₽
-• 📸 Фото: 3 000 ₽
-
-**Итого:** ~30 000 ₽
-
-Какой у вас бюджет? Могу подобрать варианты под вашу сумму 💡`;
-    }
-    
-    // Конкурсы
-    if (msg.includes('игр') || msg.includes('конкурс') || msg.includes('развлеч')) {
-      if (this.userAge && parseInt(this.userAge) >= 30) {
-        return `🎮 **Конкурсы для взрослой компании:**
-
-• 🍷 Дегустация вин вслепую
-• 📝 "Что я знаю об имениннике?" (викторина)
-• 🎪 Фотобудка с реквизитом
-• 💃 Танцевальный баттл
-• 🎤 Караоке
-
-Все эти конкурсы не требуют активного движения и подходят для любого возраста! 🎉`;
+    // Добавление задачи
+    if (msg.includes('заказать') || msg.includes('купить') || msg.includes('сделать')) {
+      if (globalPlannerActions) {
+        let task = '';
+        let category = 'Другое';
+        if (msg.includes('торт')) { task = 'Заказать торт'; category = 'Еда'; }
+        else if (msg.includes('декор') || msg.includes('шары')) { task = 'Купить украшения'; category = 'Декор'; }
+        else if (msg.includes('музык') || msg.includes('плейлист')) { task = 'Подобрать музыку'; category = 'Развлечения'; }
+        else if (msg.includes('фото')) { task = 'Пригласить фотографа'; category = 'Фото'; }
+        else { task = message.slice(0, 50); }
+        
+        globalPlannerActions.addTask(task, category);
+        return `✅ Задача "${task}" добавлена в планировщик! 📋\n\nЧто еще нужно сделать?`;
       }
-      
-      return `🎮 **Конкурсы и развлечения:**
-
-**Для всех возрастов:**
-• 🎭 Крокодил (пантомима)
-• 📝 Фанты с заданиями
-• 🎵 Угадай мелодию
-• 📸 Фотоконкурс
-
-Хотите больше идей? 🎉`;
     }
     
-    // Подарки
-    if (msg.includes('подар') || msg.includes('презент')) {
-      return `🎁 **Идеи подарков:**
-
-**Универсальные:**
-• Сертификат на впечатления
-• Персонализированная книга
-• Умные гаджеты
-
-**Для детей:**
-• Конструкторы LEGO
-• Наборы для творчества
-• Настольные игры
-
-**Для взрослых:**
-• Элитные напитки
-• Подписка на сервисы
-• Путешествие
-
-Расскажите об имениннике! 💝`;
+    // Добавление расхода
+    if (msg.includes('бюджет') || msg.includes('руб') || msg.includes('стоит')) {
+      const amountMatch = message.match(/\d+(?:[\s]?\d*)/);
+      if (amountMatch && globalPlannerActions) {
+        const amount = parseInt(amountMatch[0].replace(/\s/g, ''));
+        let title = 'Расход';
+        let category = 'Другое';
+        if (msg.includes('торт')) { title = 'Торт'; category = 'Еда'; }
+        else if (msg.includes('декор')) { title = 'Декор'; category = 'Декор'; }
+        else if (msg.includes('аниматор')) { title = 'Аниматор'; category = 'Развлечения'; }
+        
+        globalPlannerActions.addExpense(title, amount, category);
+        return `✅ Расход "${title}" на сумму ${amount} ₽ добавлен в планировщик! 💰\n\nКакой еще бюджет запланировать?`;
+      }
+      return `💰 Напишите сумму и статью расхода, например: "Торт стоит 3500 рублей"`;
     }
     
-    // Декор
-    if (msg.includes('декор') || msg.includes('украш')) {
-      return `🎈 **Идеи для декора:**
+    // Показать статистику
+    if (msg.includes('планировщик') || msg.includes('список') || msg.includes('что добавили')) {
+      if (globalPlannerActions) {
+        const state = globalPlannerActions.getState();
+        return `📊 **Текущее состояние планировщика:**
 
-**Основное:**
-• Воздушные шары (арки, гирлянды)
-• Гирлянды из флажков
-• Фотозона
+👥 Гостей: ${state.guestsCount}
+📋 Задач: ${state.tasksCount}
+💰 Бюджет: ${state.expensesTotal} ₽
 
-**DIY (сделай сам):**
-• Бумажные помпоны
-• Свечи в баночках
-• Таблички с надписями
-
-**Цветовые схемы:**
-• Розовый + золото (романтика)
-• Синий + серебро (космос)
-• Зеленый + бежевый (природа)
-
-Какая тема у праздника? 🎈`;
+Хотите добавить еще что-то? 🎉`;
+      }
     }
     
-    // Спасибо
-    if (msg.includes('спасибо')) {
-      return "Пожалуйста! Рад был помочь! Обращайтесь, если понадобятся еще идеи 🎈✨";
-    }
-    
-    // Общий ответ с учетом возраста
-    if (this.userAge) {
-      return `🎉 **Отличный вопрос!**
+    // Стандартные ответы
+    if (msg.includes('привет')) {
+      return `🎉 **Привет! Я BirthdayAI - ваш помощник по планированию дня рождения!**
 
-Для ${this.userAge}-летия я рекомендую:
+Я умею:
+• 👥 Добавлять гостей в планировщик (напишите "Пригласи Анну")
+• 📋 Создавать задачи (напишите "Заказать торт")
+• 💰 Записывать расходы (напишите "Торт 3500 рублей")
 
-**Тематика:** Гламурный вечер или ретро-вечеринка
-
-**Меню:** Фуршет с легкими закусками, горячее, торт
-
-**Развлечения:** Караоке, танцы, фотозона
-
-Хотите подробнее про какую-то часть? 🎉`;
+Начнем планировать ваш праздник? ✨`;
     }
     
     return `🎉 **Отличный вопрос!**
 
-Я могу помочь с:
-• 🎨 Выбором темы и концепции
-• 🍽️ Составлением меню
-• 💰 Планированием бюджета
-• 🎮 Подбором конкурсов
-• 🎁 Идеями подарков
-• 🎈 Декором и украшениями
-• 📍 Выбором места
+Я могу помочь с планированием и автоматически добавлять данные в планировщик:
 
-Что вас интересует больше всего? ✨`;
+• Добавить гостя: "Пригласи Ивана Иванова"
+• Создать задачу: "Заказать торт"
+• Записать расход: "Торт 3500 рублей"
+
+Что хотите добавить? 📝`;
   }
 
   clearHistory() {
     this.startNewChat();
-  }
-
-  getMode(): string {
-    return "yandexgpt-vite-proxy";
   }
 }
 

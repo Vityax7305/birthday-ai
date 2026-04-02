@@ -1,0 +1,49 @@
+:root {
+  --primary-pink: #f857a6;
+  --primary-purple: #8b5cf6;
+  --primary-orange: #ff5858;
+  
+  --bg-dark: #0f0c29;
+  --bg-mid: #302b63;
+  --bg-light: #24243e;
+  
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --text-tertiary: rgba(255, 255, 255, 0.3);
+  
+  --gradient-pink: linear-gradient(135deg, #f857a6, #ff5858);
+  --gradient-purple: linear-gradient(135deg, #8b5cf6, #6366f1);
+  --gradient-main: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  
+  --shadow-pink: 0 8px 32px rgba(248, 87, 166, 0.4);
+  --shadow-purple: 0 8px 32px rgba(139, 92, 246, 0.4);
+  
+  --radius-sm: 0.5rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.5rem;
+  --radius-xl: 2rem;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(248, 87, 166, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(248, 87, 166, 0.8);
+}
+
+::selection {
+  background: rgba(248, 87, 166, 0.3);
+  color: white;
+}
